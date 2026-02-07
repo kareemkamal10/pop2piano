@@ -16,6 +16,7 @@ from tqdm import tqdm
 from joblib import Parallel, delayed
 import sys
 import subprocess
+import platform
 from omegaconf import OmegaConf
 
 def get_dir_size(path):
@@ -49,8 +50,18 @@ def download_piano(
     import imageio_ffmpeg
     ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
     
-    # Determine yt-dlp path (in the same directory as the python executable)
-    yt_dlp_path = os.path.join(os.path.dirname(sys.executable), "yt-dlp.exe")
+    # Determine yt-dlp path based on OS
+    if platform.system() == "Windows":
+        yt_dlp_name = "yt-dlp.exe"
+    else:
+        yt_dlp_name = "yt-dlp"
+
+    # Try finding yt-dlp in the same dir as python first
+    yt_dlp_path = os.path.join(os.path.dirname(sys.executable), yt_dlp_name)
+    
+    # If not found there, assume it's in PATH
+    if not os.path.exists(yt_dlp_path):
+        yt_dlp_path = yt_dlp_name
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output = f"{tmpdir}/%(uploader)s___%(title)s___%(id)s___%(duration)d.%(ext)s"
@@ -134,8 +145,18 @@ def download_pop(piano_id, pop_id, output_dir, dry_run, max_size_gb=None):
     output_template = os.path.join(output_dir, piano_id, output_file_template)
     url = f"https://www.youtube.com/watch?v={pop_id}"
     
-    # Determine yt-dlp path (in the same directory as the python executable)
-    yt_dlp_path = os.path.join(os.path.dirname(sys.executable), "yt-dlp.exe")
+    # Determine yt-dlp path based on OS
+    if platform.system() == "Windows":
+        yt_dlp_name = "yt-dlp.exe"
+    else:
+        yt_dlp_name = "yt-dlp"
+
+    # Try finding yt-dlp in the same dir as python first
+    yt_dlp_path = os.path.join(os.path.dirname(sys.executable), yt_dlp_name)
+    
+    # If not found there, assume it's in PATH
+    if not os.path.exists(yt_dlp_path):
+        yt_dlp_path = yt_dlp_name
     
     # Needs ffmpeg path too if not in env
     import imageio_ffmpeg
