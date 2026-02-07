@@ -2,7 +2,7 @@
 ---
 ##
 - [Paper](https://arxiv.org/abs/2211.00895)
-- [Colab](http://bit.ly/pop2piano-colab)
+- [Colab]([http://bit.ly/pop2piano-colab](https://colab.research.google.com/github/kareemkamal10/pop2piano/blob/main/pop2piano_colab.ipynb))
 - [Project Page](http://sweetcocoa.github.io/pop2piano_samples)
 
 ## How to prepare dataset
