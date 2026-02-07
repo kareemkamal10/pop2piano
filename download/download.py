@@ -14,38 +14,70 @@ import re
 
 from tqdm import tqdm
 from joblib import Parallel, delayed
+import sys
+import subprocess
 from omegaconf import OmegaConf
 
+def get_dir_size(path):
+    total = 0
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                if entry.is_file():
+                    total += entry.stat().st_size
+                elif entry.is_dir():
+                    total += get_dir_size(entry.path)
+    except FileNotFoundError:
+        pass
+    return total
 
 def download_piano(
     url: str,
     output_dir: str,
     postprocess=True,
     dry_run=False,
+    max_size_gb=None,
 ) -> int:
     # os.makedirs(os.path.dirname(output_dir), exist_ok=True)
+    
+    if max_size_gb is not None:
+        current_size = get_dir_size(output_dir)
+        if current_size > max_size_gb * 1024 * 1024 * 1024:
+            # print("Size limit reached.")
+            return 0
+    
+    import imageio_ffmpeg
+    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+    
+    # Determine yt-dlp path (in the same directory as the python executable)
+    yt_dlp_path = os.path.join(os.path.dirname(sys.executable), "yt-dlp.exe")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output = f"{tmpdir}/%(uploader)s___%(title)s___%(id)s___%(duration)d.%(ext)s"
 
+        cmd = [
+            yt_dlp_path,
+            "-o", output,
+            "--ffmpeg-location", ffmpeg_path,
+            "--extract-audio",
+            "--audio-quality", "0",
+            "--audio-format", "wav",
+            "--retries", "50",
+            "--prefer-ffmpeg",
+            "--force-ipv4",
+            "--yes-playlist",
+            "--ignore-errors"
+        ]
+
+        if dry_run:
+            cmd.append("--get-filename")
+        
         if postprocess:
-            postprocess_call = '--postprocessor-args "-ac 1 -ar 16000"'
-        else:
-            postprocess_call = ""
-        result = os.system(
-            f"""youtube-dl -o "{output}" \\
-                --extract-audio \\
-                --audio-quality 0 \\
-                --audio-format wav \\
-                --retries 50 \\
-                --prefer-ffmpeg \\
-                {"--get-filename" if dry_run else ""}\\
-                {postprocess_call} \\
-                --force-ipv4 \\
-                --yes-playlist \\
-                --ignore-errors \\
-                {url}"""
-        )
+            cmd.extend(["--postprocessor-args", "-ac 1 -ar 16000"])
+            
+        cmd.append(url)
+        
+        result = subprocess.call(cmd)
 
         if not dry_run:
 
@@ -69,7 +101,7 @@ def download_piano(
     return result
 
 
-def download_piano_main(piano_list, output_dir, dry_run=False):
+def download_piano_main(piano_list, output_dir, dry_run=False, max_size_gb=None):
     """
     piano_list : list of youtube id
     """
@@ -80,30 +112,54 @@ def download_piano_main(piano_list, output_dir, dry_run=False):
             output_dir=output_dir,
             postprocess=True,
             dry_run=dry_run,
+            max_size_gb=max_size_gb,
         )
         for ytid in tqdm(piano_list)
     )
 
 
-def download_pop(piano_id, pop_id, output_dir, dry_run):
+def download_pop(piano_id, pop_id, output_dir, dry_run, max_size_gb=None):
+    
+    if max_size_gb is not None:
+        current_size = get_dir_size(output_dir)
+        if current_size > max_size_gb * 1024 * 1024 * 1024:
+            # print("Size limit reached.")
+            return 0
+    
+    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+
     output_file_template = "%(id)s___%(title)s___%(duration)d.%(ext)s"
     pop_output_dir = os.path.join(output_dir, piano_id)
     os.makedirs(pop_output_dir, exist_ok=True)
     output_template = os.path.join(output_dir, piano_id, output_file_template)
     url = f"https://www.youtube.com/watch?v={pop_id}"
+    
+    # Determine yt-dlp path (in the same directory as the python executable)
+    yt_dlp_path = os.path.join(os.path.dirname(sys.executable), "yt-dlp.exe")
+    
+    # Needs ffmpeg path too if not in env
+    import imageio_ffmpeg
+    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 
-    result = os.system(
-        f"""youtube-dl -o "{output_template}" \\
-            --extract-audio \\
-            --audio-quality 0 \\
-            --audio-format wav \\
-            --retries 25 \\
-            {"--get-filename" if dry_run else ""}\\
-            --prefer-ffmpeg \\
-            --match-filter 'duration < 300 & duration > 150'\\
-            --postprocessor-args "-ac 2 -ar 44100" \\
-            {url}"""
-    )
+    cmd = [
+        yt_dlp_path,
+        "-o", output_template,
+        "--ffmpeg-location", ffmpeg_path,
+        "--extract-audio",
+        "--audio-quality", "0",
+        "--audio-format", "wav",
+        "--retries", "25",
+        "--prefer-ffmpeg",
+        "--match-filter", "duration < 300 & duration > 150",
+        "--postprocessor-args", "-ac 2 -ar 44100"
+    ]
+
+    if dry_run:
+        cmd.append("--get-filename")
+    
+    cmd.append(url)
+    
+    result = subprocess.call(cmd)
 
     if not dry_run:
         files = list(filter(lambda x: x.endswith(".wav"), os.listdir(pop_output_dir)))
@@ -126,7 +182,7 @@ def download_pop(piano_id, pop_id, output_dir, dry_run):
             )
 
 
-def download_pop_main(piano_list, pop_list, output_dir, dry_run=False):
+def download_pop_main(piano_list, pop_list, output_dir, dry_run=False, max_size_gb=None):
     """
     piano_list : list of youtube id
     pop_list : corresponding youtube id of pop songs
@@ -138,6 +194,7 @@ def download_pop_main(piano_list, pop_list, output_dir, dry_run=False):
             pop_id=pop_id,
             output_dir=output_dir,
             dry_run=dry_run,
+            max_size_gb=max_size_gb,
         )
         for piano_id, pop_id in tqdm(list(zip(piano_list, pop_list)))
     )
@@ -159,12 +216,18 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dry_run", default=False, action="store_true", help="whether dry_run"
     )
+    parser.add_argument(
+        "--max_size_gb",
+        type=float,
+        default=None,
+        help="Maximum size of output directory in GB before stopping (optional)",
+    )
     args = parser.parse_args()
 
     df = pd.read_csv(args.dataset)
     df = df[: args.num_audio]
     piano_list = df["piano_ids"].tolist()
-    download_piano_main(piano_list, args.output_dir, args.dry_run)
+    download_piano_main(piano_list, args.output_dir, args.dry_run, args.max_size_gb)
 
     available_piano_list = glob.glob(args.output_dir + "/**/*.yaml", recursive=True)
     df.index = df["piano_ids"]
@@ -189,5 +252,5 @@ if __name__ == "__main__":
     pop_list = df["pop_ids"].tolist()
 
     download_pop_main(
-        piano_list, pop_list, output_dir=args.output_dir, dry_run=args.dry_run
+        piano_list, pop_list, output_dir=args.output_dir, dry_run=args.dry_run, max_size_gb=args.max_size_gb
     )
