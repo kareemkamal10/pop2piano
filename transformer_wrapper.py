@@ -54,6 +54,28 @@ class TransformerWrapper(pl.LightningModule):
 
         self.lr = config.training.lr
 
+    def training_step(self, batch, batch_idx):
+        """
+        Training step logic.
+        Expects batch to contain:
+        - input_ids (or inputs_embeds via spectrogram)
+        - labels (target MIDI tokens)
+        """
+        # This is a skeleton. Real implementation depends on how dataset.py yields data.
+        # Assuming batch is a dict/tuple with keys.
+        
+        # For now, we will just return a dummy loss to prove the loop works 
+        # (Since the dataset loader isn't fully connected to audio yet)
+        
+        # In real training:
+        # outputs = self.transformer(input_ids=batch['input_ids'], labels=batch['labels'])
+        # loss = outputs.loss
+        
+        # Dummy loss for testing the pipeline
+        loss = torch.tensor(0.5, requires_grad=True).to(self.device)
+        self.log("train_loss", loss, prog_bar=True)
+        return loss
+
     def forward(self, input_ids, labels):
         """
         Deprecated.
