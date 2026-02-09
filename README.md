@@ -2,7 +2,8 @@
 ---
 ##
 - [Paper](https://arxiv.org/abs/2211.00895)
-- [coge](https://colab.research.google.com/github/kareemkamal10/pop2piano/blob/main/pop2piano_colab.ipynb)
+- [train](https://colab.research.google.com/github/kareemkamal10/pop2piano/blob/main/train.ipynb)
+- [inference](https://colab.research.google.com/github/kareemkamal10/pop2piano/blob/main/inference.ipynb)
 - [Project Page](http://sweetcocoa.github.io/pop2piano_samples)
 
 ## How to prepare dataset
