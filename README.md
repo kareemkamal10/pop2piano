@@ -2,9 +2,14 @@
 ---
 ##
 - [Paper](https://arxiv.org/abs/2211.00895)
-- [train](https://colab.research.google.com/github/kareemkamal10/pop2piano/blob/main/train.ipynb)
-- [inference](https://colab.research.google.com/github/kareemkamal10/pop2piano/blob/main/inference.ipynb)
 - [Project Page](http://sweetcocoa.github.io/pop2piano_samples)
+
+### Training
+- [Train on Colab](https://colab.research.google.com/github/kareemkamal10/pop2piano/blob/main/train.ipynb)
+
+### Inference (Use Pre-trained Model)
+- [Inference on Colab](https://colab.research.google.com/github/kareemkamal10/pop2piano/blob/main/inference_colab.ipynb)
+- [Inference on Kaggle](https://kaggle.com/kernels/welcome?src=https://github.com/kareemkamal10/pop2piano/blob/main/inference_kaggle.ipynb)
 
 ## How to prepare dataset
 ### Download Original Media
