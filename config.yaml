@@ -45,7 +45,7 @@ training:
   seed: 3407
   resume: false
   offline: false
-  num_gpu: 1
+  num_gpu: 2  # Set to 2 to enable multi-GPU training if available
   max_epochs: 5000
   accumulate_grad_batches: 1
   check_val_every_n_epoch: 20

@@ -340,3 +340,7 @@ class TransformerWrapper(pl.LightningModule):
             pm.write(midi_path)
 
         return pm, composer, mix_path, midi_path
+
+    # Check for multiple GPUs and use DataParallel if available
+        if torch.cuda.device_count() > 1:
+            self.transformer = torch.nn.DataParallel(self.transformer)
