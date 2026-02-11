@@ -639,7 +639,7 @@ def download_from_youtube(url, progress=gr.Progress()):
 def create_interface():
     """Create the Gradio interface."""
     
-    with gr.Blocks(css=CUSTOM_CSS, title="Pop2Piano", theme=gr.themes.Base()) as app:
+    with gr.Blocks(title="Pop2Piano") as app:
         
         # Header
         gr.HTML("""
@@ -1039,5 +1039,7 @@ if __name__ == "__main__":
         server_name="0.0.0.0",
         server_port=7860,
         share=True,  # Creates public URL
-        inbrowser=True
+        inbrowser=True,
+        css=CUSTOM_CSS,
+        theme=gr.themes.Base()
     )
