@@ -23,6 +23,7 @@ class Pop2PianoDataset(Dataset):
     - *.pitchshift.wav or *.wav : Audio file
     - *.notes.npy : MIDI notes (onset_idx, offset_idx, pitch, velocity)
     - *.beatstep.npy : Beat timestamps
+    - *.maqam.txt : Optional; maqam token name (e.g. hijaz, western) for maqam-aware training
     """
     
     def __init__(self, data_dir, config, tokenizer, split='train', 
@@ -88,12 +89,18 @@ class Pop2PianoDataset(Dataset):
             
             # Validate all required files exist
             if beatstep_files and notes_files and audio_files:
+                notes_path = notes_files[0]
+                # Maqam file has same base as notes: EHl_eQhgefw.notes.npy -> EHl_eQhgefw.maqam.txt
+                maqam_path = notes_path.replace(".notes.npy", ".maqam.txt")
+                if not os.path.isfile(maqam_path):
+                    maqam_path = None
                 samples.append({
                     'track_dir': track_path,
                     'track_id': os.path.basename(track_path),
                     'beatstep_path': beatstep_files[0],
-                    'notes_path': notes_files[0],
+                    'notes_path': notes_path,
                     'audio_path': audio_files[0],
+                    'maqam_path': maqam_path,
                 })
         
         print(f"📁 Found {len(samples)} valid tracks")
@@ -156,9 +163,20 @@ class Pop2PianoDataset(Dataset):
                 segment_notes[:, 0] = np.clip(segment_notes[:, 0], 0, n_steps)
                 segment_notes[:, 1] = np.clip(segment_notes[:, 1], 0, n_steps)
             
-            # Select random composer style
-            composer = random.choice(self.composers)
-            composer_value = self.composer_to_token[composer]
+            # Composer/maqam token: use pre-computed maqam if available, else western or random
+            composer_value = None
+            if sample_info.get('maqam_path'):
+                try:
+                    with open(sample_info['maqam_path'], 'r', encoding='utf-8') as f:
+                        token_name = f.read().strip().lower()
+                    composer_value = self.composer_to_token.get(token_name)
+                except Exception:
+                    pass
+            if composer_value is None:
+                composer_value = self.composer_to_token.get("western")
+            if composer_value is None:
+                composer = random.choice(self.composers)
+                composer_value = self.composer_to_token[composer]
             
             # Convert to relative tokens with composer
             tokens = self.tokenizer.notes_to_relative_tokens(

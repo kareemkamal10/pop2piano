@@ -362,6 +362,33 @@ class TransformerWrapper(pl.LightningModule):
     ):
         config = self.config
         device = self.device
+        composer_to_feature_token = self.composer_to_feature_token
+
+        # Resolve composer: explicit composer, or maqam alias, or auto-detect from audio
+        if composer is None and maqam is not None:
+            composer = maqam
+        if composer is None:
+            try:
+                from smart_inference import analyze_audio
+                if audio_y is not None and audio_sr is not None:
+                    _y, _sr = audio_y, audio_sr
+                elif audio_path is not None:
+                    _y, _sr = librosa.load(audio_path, sr=44100)
+                else:
+                    _y = _sr = None
+                if _y is not None:
+                    analysis = analyze_audio(_y, _sr)
+                    composer = (analysis.detected_maqam if analysis.is_arabic else "western")
+                    if composer not in composer_to_feature_token:
+                        composer = "western" if "western" in composer_to_feature_token else list(composer_to_feature_token.keys())[0]
+                else:
+                    composer = random.sample(list(composer_to_feature_token.keys()), 1)[0]
+            except Exception:
+                composer = random.sample(list(composer_to_feature_token.keys()), 1)[0]
+        if composer not in composer_to_feature_token:
+            composer = "western" if "western" in composer_to_feature_token else list(composer_to_feature_token.keys())[0]
+
+        composer_value = composer_to_feature_token[composer]
 
         if audio_path is not None:
             extension = os.path.splitext(audio_path)[1]
@@ -377,12 +404,6 @@ class TransformerWrapper(pl.LightningModule):
             )
 
         max_batch_size = 64 // n_bars if max_batch_size is None else max_batch_size
-        composer_to_feature_token = self.composer_to_feature_token
-
-        if composer is None:
-            composer = random.sample(list(composer_to_feature_token.keys()), 1)[0]
-
-        composer_value = composer_to_feature_token[composer]
         mix_sample_rate = (
             config.dataset.sample_rate if mix_sample_rate is None else mix_sample_rate
         )

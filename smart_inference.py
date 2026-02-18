@@ -405,11 +405,14 @@ def score_midi_quality(
 # Smart Generation (Main Class)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Default composers to try (selected for diversity of styles)
-DEFAULT_COMPOSERS = ["composer1", "composer2", "composer4", "composer6", "composer8"]
-
-# Recommended composers for Arabic music (simpler, cleaner arrangements)
-ARABIC_RECOMMENDED_COMPOSERS = ["composer2", "composer4", "composer6", "composer8", "composer10"]
+# Maqam-aware token names (used when model is fine-tuned with config composer_to_feature_token)
+MAQAM_TOKEN_NAMES = [
+    "rast", "bayyati", "hijaz", "saba", "nahawand", "kurd", "ajam", "nikriz",
+    "hijaz_kar", "husayni", "sikah", "nawa_athar", "jiharkah", "athar_kurd",
+    "western",
+]
+# Fallback for models that only have composer1-21 (vanilla HuggingFace)
+LEGACY_FALLBACK_COMPOSER = "composer1"
 
 
 class SmartPop2Piano:
@@ -417,7 +420,7 @@ class SmartPop2Piano:
     Smart wrapper around HuggingFace Pop2Piano that adds:
     - Automatic maqam detection from audio
     - Arabic song detection
-    - Multi-composer generation with quality scoring
+    - Maqam-based token selection (detected maqam or western)
     - Maqam post-processing on generated MIDI
 
     Usage:
@@ -530,21 +533,23 @@ class SmartPop2Piano:
                 if verbose:
                     print(f"  Auto-selected maqam: {effective_maqam}")
 
-        # ── Step 4: Determine Composers to Try ──
+        # ── Step 4: Determine composer token(s) to use (maqam-aware) ──
         if composer is not None:
-            # User forced a specific composer
             composer_list = [composer]
+        elif composers_to_try is not None:
+            composer_list = composers_to_try
         elif auto_select_composer:
-            if composers_to_try is not None:
-                composer_list = composers_to_try
-            elif analysis.is_arabic:
-                composer_list = ARABIC_RECOMMENDED_COMPOSERS
+            # Single best token: detected maqam or western
+            if effective_maqam:
+                composer_list = [effective_maqam]
                 if verbose:
-                    print(f"  Using Arabic-recommended composers: {composer_list}")
+                    print(f"  Using maqam token: {effective_maqam}")
             else:
-                composer_list = DEFAULT_COMPOSERS
+                composer_list = ["western"]
+                if verbose:
+                    print("  Using western token")
         else:
-            composer_list = ["composer1"]
+            composer_list = [effective_maqam or "western"]
 
         # ── Step 5: Process Audio ──
         inputs = self.processor(audio=audio, sampling_rate=sr, return_tensors="pt")
@@ -625,8 +630,50 @@ class SmartPop2Piano:
                           f"range: {p_range}{maq_str}")
 
             except Exception as e:
-                if verbose:
-                    print(f"FAILED ({e})")
+                # Fallback: if maqam token not in model (vanilla HuggingFace), try legacy composer
+                if comp in MAQAM_TOKEN_NAMES and comp != LEGACY_FALLBACK_COMPOSER:
+                    try:
+                        model_output = self.model.generate(
+                            input_features=inputs["input_features"],
+                            composer=LEGACY_FALLBACK_COMPOSER,
+                        )
+                        midi_obj = self.processor.batch_decode(
+                            token_ids=model_output.cpu(),
+                            feature_extractor_output={k: v.cpu() for k, v in inputs.items()},
+                        )["pretty_midi_objects"][0]
+                        if apply_post_processing:
+                            midi_obj = apply_maqam_to_midi(
+                                midi_obj, maqam_name=effective_maqam or None,
+                                auto_detect=False, simplify=simplify_chords,
+                                quantize=quantize_rhythm, humanize=humanize,
+                            )
+                        quality = score_midi_quality(midi_obj, effective_maqam)
+                        note_count = len(midi_obj.instruments[0].notes) if midi_obj.instruments else 0
+                        pitches = [n.pitch for n in midi_obj.instruments[0].notes] if note_count > 0 else []
+                        p_range = (max(pitches) - min(pitches)) if pitches else 0
+                        maq_adh = 0.0
+                        if effective_maqam and pitches:
+                            maqam_obj = get_maqam(effective_maqam)
+                            if maqam_obj:
+                                scale = set(get_maqam_scale(maqam_obj))
+                                pitch_classes = [p % 12 for p in pitches]
+                                maq_adh = sum(1 for pc in pitch_classes if pc in scale) / len(pitch_classes)
+                        all_results.append(ComposerResult(
+                            composer=comp,
+                            midi=midi_obj,
+                            score=quality,
+                            note_count=note_count,
+                            pitch_range=p_range,
+                            maqam_adherence=round(maq_adh, 2),
+                        ))
+                        if verbose:
+                            print(f"score: {quality:.2f} (fallback {LEGACY_FALLBACK_COMPOSER})")
+                    except Exception:
+                        if verbose:
+                            print(f"FAILED ({e})")
+                else:
+                    if verbose:
+                        print(f"FAILED ({e})")
 
         # ── Step 7: Pick Best Result ──
         if not all_results:
@@ -666,8 +713,8 @@ class SmartPop2Piano:
         verbose: bool = True,
     ) -> List[ComposerResult]:
         """
-        Generate with ALL 21 composers and save each.
-        Useful for finding the best composer for a specific song.
+        Generate with all maqam tokens (and western) and save each.
+        Useful for finding the best maqam for a specific song.
 
         Args:
             audio_path: Path to audio file
@@ -683,7 +730,7 @@ class SmartPop2Piano:
         import os
         os.makedirs(output_dir, exist_ok=True)
 
-        all_composers = [f"composer{i}" for i in range(1, 22)]
+        all_composers = list(MAQAM_TOKEN_NAMES)
         base_name = os.path.splitext(os.path.basename(audio_path))[0]
 
         result = self.generate(
