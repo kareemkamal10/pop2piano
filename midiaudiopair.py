@@ -82,7 +82,9 @@ class MidiAudioPair:
 
         piano_sec = int(yaml.piano.duration)
         song_sec = int(yaml.song.duration)
-        if piano_sec / song_sec > 1.2 or piano_sec / song_sec < 0.83:
+        # Allow partial covers: ratio must be 15%-120% (e.g. 60s cover of 4min song = 25%)
+        ratio = piano_sec / song_sec if song_sec > 0 else 0
+        if ratio > 1.2 or ratio < 0.15:
             return MidiAudioPair.BAD_DURATION
 
         if yaml.piano.title.find("HANPPYEOM") != -1:

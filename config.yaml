@@ -6,28 +6,50 @@ dataset:
   sample_rate: 22050
   use_mel: true
   mel_is_conditioned: true
+# Maqam-aware token mapping (used in training and inference)
 composer_to_feature_token:
-  composer1: 2052
-  composer2: 2053
-  composer3: 2054
-  composer4: 2055
-  composer5: 2056
-  composer6: 2057
-  composer7: 2058
-  composer8: 2059
-  composer9: 2060
-  composer10: 2061
-  composer11: 2062
-  composer12: 2063
-  composer13: 2064
-  composer14: 2065
-  composer15: 2066
+  # Primary maqamat (1-8)
+  rast: 2052
+  bayyati: 2053
+  hijaz: 2054
+  saba: 2055
+  nahawand: 2056
+  kurd: 2057
+  ajam: 2058
+  nikriz: 2059
+  # Secondary maqamat (9-14)
+  hijaz_kar: 2060
+  husayni: 2061
+  sikah: 2062
+  nawa_athar: 2063
+  jiharkah: 2064
+  athar_kurd: 2065
+  # Western / general (English songs)
+  western: 2066
+  # Reserved for style variation (16-21)
   composer16: 2067
   composer17: 2068
   composer18: 2069
   composer19: 2070
   composer20: 2071
   composer21: 2072
+
+# Maqam name to token lookup (for preprocessing: detect_maqam returns name_en)
+maqam_to_token:
+  Rast: rast
+  Bayyati: bayyati
+  Hijaz: hijaz
+  Saba: saba
+  Nahawand: nahawand
+  Kurd: kurd
+  Ajam: ajam
+  Nikriz: nikriz
+  "Hijaz Kar": hijaz_kar
+  Husayni: husayni
+  Sikah: sikah
+  "Nawa Athar": nawa_athar
+  Jiharkah: jiharkah
+  "Athar Kurd": athar_kurd
 t5:
   feed_forward_proj: gated-gelu
   tie_word_embeddings: false
@@ -50,12 +72,40 @@ training:
   accumulate_grad_batches: 1
   check_val_every_n_epoch: 20
   find_lr: false
-  optimizer: adafactor
+  optimizer: adafactor  # Options: adafactor, adamw, adam
   version: none
   lr: 0.001
   lr_min: 1.0e-06
-  lr_scheduler: false
+  lr_scheduler: true  # Enable cosine LR scheduler
   lr_decay: 0.99
   batch_size: 32
   num_workers: 32
   gradient_clip_val: 3.0
+
+# Piano Rules Configuration
+piano_rules:
+  enabled: true
+  simplify_chords: true
+  quantize_rhythm: true
+  humanize: false
+  auto_detect_maqam: false
+
+# Arabic Maqamat Support
+arabic_maqamat:
+  enabled: true
+  default_maqam: null  # Options: rast, bayyati, hijaz, saba, nahawand, sikah, ajam, kurd
+  available_maqamat:
+    - rast
+    - bayyati
+    - hijaz
+    - saba
+    - nahawand
+    - sikah
+    - ajam
+    - kurd
+    - hijaz_kar
+    - husayni
+    - jiharkah
+    - nawa_athar
+    - nikriz
+    - athar_kurd

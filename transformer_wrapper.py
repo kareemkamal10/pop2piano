@@ -1,19 +1,33 @@
 import os
 import random
+import math
 
 import numpy as np
 import librosa
 import torch
 import torch.optim as optim
-import pytorch_lightning as pl
+try:
+    import lightning as pl  # lightning 2.x
+except ImportError:
+    import pytorch_lightning as pl  # fallback to 1.x
 import soundfile as sf
 from torch.nn.utils.rnn import pad_sequence
 from transformers import T5Config, T5ForConditionalGeneration
+from transformers import get_cosine_schedule_with_warmup
 
 from midi_tokenizer import MidiTokenizer, extrapolate_beat_times
 from layer.input import LogMelSpectrogram, ConcatEmbeddingToMel
 from preprocess.beat_quantizer import extract_rhythm, interpolate_beat_times
 from utils.dsp import get_stereo
+
+# Import piano rules and Arabic maqamat modules
+try:
+    from piano_rules import apply_piano_rules, PianoNote, midi_array_to_notes, notes_to_midi_array
+    from arabic_maqamat import get_maqam, get_maqam_scale, detect_maqam, quantize_to_maqam
+    RULES_AVAILABLE = True
+except ImportError:
+    RULES_AVAILABLE = False
+    print("⚠️  Piano rules and Arabic maqamat modules not found. Rule-based processing disabled.")
 
 
 DEFAULT_COMPOSERS = {"various composer": 2052}
@@ -56,25 +70,125 @@ class TransformerWrapper(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         """
-        Training step logic.
-        Expects batch to contain:
-        - input_ids (or inputs_embeds via spectrogram)
-        - labels (target MIDI tokens)
+        Training step - processes audio to mel spectrogram and trains on MIDI tokens.
+        
+        Batch contains:
+        - audio: (batch, samples) raw audio waveform
+        - labels: (batch, seq_len) MIDI tokens
+        - composer: (batch,) composer token values
         """
-        # This is a skeleton. Real implementation depends on how dataset.py yields data.
-        # Assuming batch is a dict/tuple with keys.
+        audio = batch['audio']  # (batch, samples)
+        labels = batch['labels']  # (batch, seq_len)
+        composer = batch['composer']  # (batch,)
         
-        # For now, we will just return a dummy loss to prove the loop works 
-        # (Since the dataset loader isn't fully connected to audio yet)
+        # Convert audio to mel spectrogram
+        # spectrogram expects (batch, samples) -> (batch, n_mels, time)
+        mel = self.spectrogram(audio)  # (batch, 512, time)
         
-        # In real training:
-        # outputs = self.transformer(input_ids=batch['input_ids'], labels=batch['labels'])
-        # loss = outputs.loss
+        # Transpose to (batch, time, 512) for transformer
+        inputs_embeds = mel.transpose(1, 2)  # (batch, time, 512)
         
-        # Dummy loss for testing the pipeline
-        loss = torch.tensor(0.5, requires_grad=True).to(self.device)
-        self.log("train_loss", loss, prog_bar=True)
+        # Add composer conditioning if enabled
+        if self.mel_is_conditioned:
+            inputs_embeds = self.mel_conditioner(inputs_embeds, composer)
+        
+        # Forward pass through T5
+        outputs = self.transformer(
+            inputs_embeds=inputs_embeds,
+            labels=labels,
+        )
+        
+        loss = outputs.loss
+        
+        # Logging
+        self.log("train_loss", loss, prog_bar=True, sync_dist=True)
+        
+        # Log learning rate
+        if self.trainer.optimizers:
+            lr = self.trainer.optimizers[0].param_groups[0]['lr']
+            self.log("lr", lr, prog_bar=True)
+        
         return loss
+    
+    def validation_step(self, batch, batch_idx):
+        """
+        Validation step - same as training but without gradients.
+        """
+        audio = batch['audio']
+        labels = batch['labels']
+        composer = batch['composer']
+        
+        # Convert audio to mel spectrogram
+        mel = self.spectrogram(audio)
+        inputs_embeds = mel.transpose(1, 2)
+        
+        if self.mel_is_conditioned:
+            inputs_embeds = self.mel_conditioner(inputs_embeds, composer)
+        
+        outputs = self.transformer(
+            inputs_embeds=inputs_embeds,
+            labels=labels,
+        )
+        
+        self.log("val_loss", outputs.loss, prog_bar=True, sync_dist=True)
+        return outputs.loss
+    
+    def configure_optimizers(self):
+        """
+        Configure optimizer and learning rate scheduler.
+        """
+        config = self.config.training
+        
+        # Choose optimizer
+        if config.optimizer.lower() == 'adafactor':
+            from transformers import Adafactor
+            optimizer = Adafactor(
+                self.parameters(),
+                lr=self.lr,
+                relative_step=False,
+                warmup_init=False,
+            )
+        elif config.optimizer.lower() == 'adamw':
+            optimizer = optim.AdamW(
+                self.parameters(),
+                lr=self.lr,
+                weight_decay=0.01,
+            )
+        else:
+            optimizer = optim.Adam(self.parameters(), lr=self.lr)
+        
+        # Learning rate scheduler
+        if config.lr_scheduler:
+            # Estimate total training steps
+            if hasattr(self.trainer, 'estimated_stepping_batches'):
+                total_steps = self.trainer.estimated_stepping_batches
+            else:
+                total_steps = config.max_epochs * 1000  # Fallback estimate
+            
+            warmup_steps = int(total_steps * 0.1)  # 10% warmup
+            
+            scheduler = get_cosine_schedule_with_warmup(
+                optimizer,
+                num_warmup_steps=warmup_steps,
+                num_training_steps=total_steps,
+            )
+            
+            return {
+                'optimizer': optimizer,
+                'lr_scheduler': {
+                    'scheduler': scheduler,
+                    'interval': 'step',
+                    'frequency': 1,
+                }
+            }
+        
+        return optimizer
+    
+    def on_train_start(self):
+        """Enable gradient checkpointing for memory efficiency."""
+        if hasattr(self.transformer, 'gradient_checkpointing_enable'):
+            self.transformer.gradient_checkpointing_enable()
+            print("✅ Gradient checkpointing enabled")
 
     def forward(self, input_ids, labels):
         """
@@ -238,9 +352,43 @@ class TransformerWrapper(pl.LightningModule):
         mix_sample_rate=None,
         audio_y=None,
         audio_sr=None,
+        # New parameters for rule-based processing
+        apply_rules=True,           # Apply piano rules post-processing
+        maqam=None,                  # Arabic maqam name (e.g., 'hijaz', 'bayyati')
+        auto_detect_maqam=False,    # Auto-detect maqam from melody
+        simplify_chords=True,       # Simplify complex chords
+        quantize_rhythm=True,       # Quantize to beat grid
+        humanize=False,             # Add human-like variations
     ):
         config = self.config
         device = self.device
+        composer_to_feature_token = self.composer_to_feature_token
+
+        # Resolve composer: explicit composer, or maqam alias, or auto-detect from audio
+        if composer is None and maqam is not None:
+            composer = maqam
+        if composer is None:
+            try:
+                from smart_inference import analyze_audio
+                if audio_y is not None and audio_sr is not None:
+                    _y, _sr = audio_y, audio_sr
+                elif audio_path is not None:
+                    _y, _sr = librosa.load(audio_path, sr=44100)
+                else:
+                    _y = _sr = None
+                if _y is not None:
+                    analysis = analyze_audio(_y, _sr)
+                    composer = (analysis.detected_maqam if analysis.is_arabic else "western")
+                    if composer not in composer_to_feature_token:
+                        composer = "western" if "western" in composer_to_feature_token else list(composer_to_feature_token.keys())[0]
+                else:
+                    composer = random.sample(list(composer_to_feature_token.keys()), 1)[0]
+            except Exception:
+                composer = random.sample(list(composer_to_feature_token.keys()), 1)[0]
+        if composer not in composer_to_feature_token:
+            composer = "western" if "western" in composer_to_feature_token else list(composer_to_feature_token.keys())[0]
+
+        composer_value = composer_to_feature_token[composer]
 
         if audio_path is not None:
             extension = os.path.splitext(audio_path)[1]
@@ -256,12 +404,6 @@ class TransformerWrapper(pl.LightningModule):
             )
 
         max_batch_size = 64 // n_bars if max_batch_size is None else max_batch_size
-        composer_to_feature_token = self.composer_to_feature_token
-
-        if composer is None:
-            composer = random.sample(list(composer_to_feature_token.keys()), 1)[0]
-
-        composer_value = composer_to_feature_token[composer]
         mix_sample_rate = (
             config.dataset.sample_rate if mix_sample_rate is None else mix_sample_rate
         )
@@ -328,6 +470,69 @@ class TransformerWrapper(pl.LightningModule):
             n.start += beatsteps[0]
             n.end += beatsteps[0]
 
+        # ─────────────────────────────────────────────────────────────
+        # Apply Piano Rules and Arabic Maqamat Post-Processing
+        # ─────────────────────────────────────────────────────────────
+        if apply_rules and RULES_AVAILABLE and len(pm.instruments[0].notes) > 0:
+            print("🎹 Applying piano rules...")
+            
+            # Convert MIDI to PianoNote objects
+            piano_notes = []
+            for n in pm.instruments[0].notes:
+                piano_notes.append(PianoNote(
+                    pitch=n.pitch,
+                    onset=n.start,
+                    offset=n.end,
+                    velocity=n.velocity
+                ))
+            
+            # Determine scale for quantization
+            scale_pitches = None
+            
+            # Auto-detect maqam if requested
+            detected_maqam_name = None
+            if auto_detect_maqam and maqam is None:
+                pitches = [n.pitch for n in pm.instruments[0].notes]
+                detections = detect_maqam(pitches, threshold=0.6)
+                if detections:
+                    detected_maqam_name = detections[0][0]
+                    confidence = detections[0][1]
+                    print(f"🎵 Detected maqam: {detected_maqam_name} (confidence: {confidence:.2f})")
+                    maqam_obj = get_maqam(detected_maqam_name)
+                    if maqam_obj:
+                        scale_pitches = get_maqam_scale(maqam_obj)
+            
+            # Use specified maqam
+            elif maqam is not None:
+                maqam_obj = get_maqam(maqam)
+                if maqam_obj:
+                    scale_pitches = get_maqam_scale(maqam_obj)
+                    print(f"🎵 Using maqam: {maqam_obj.name_en} ({maqam_obj.name_ar})")
+                else:
+                    print(f"⚠️  Unknown maqam: {maqam}. Using default processing.")
+            
+            # Apply piano rules
+            processed_notes = apply_piano_rules(
+                notes=piano_notes,
+                scale_pitches=scale_pitches,
+                simplify=simplify_chords,
+                quantize=quantize_rhythm,
+                humanize=humanize
+            )
+            
+            # Update MIDI with processed notes
+            pm.instruments[0].notes = []
+            import pretty_midi
+            for pn in processed_notes:
+                pm.instruments[0].notes.append(pretty_midi.Note(
+                    velocity=pn.velocity,
+                    pitch=pn.pitch,
+                    start=pn.onset,
+                    end=pn.offset
+                ))
+            
+            print(f"✅ Applied rules: {len(piano_notes)} -> {len(processed_notes)} notes")
+
         if show_plot or save_mix:
             if mix_sample_rate != sr:
                 y = librosa.core.resample(y, orig_sr=sr, target_sr=mix_sample_rate)
@@ -362,7 +567,3 @@ class TransformerWrapper(pl.LightningModule):
             pm.write(midi_path)
 
         return pm, composer, mix_path, midi_path
-
-    # Check for multiple GPUs and use DataParallel if available
-        if torch.cuda.device_count() > 1:
-            self.transformer = torch.nn.DataParallel(self.transformer)

@@ -1,9 +1,38 @@
-pretty-midi==0.2.9
-omegaconf==2.1.1
-transformers==4.16.1 
-pytorch-lightning==1.8.4
-essentia==2.1b6.dev1034 
-note-seq==0.0.5 
-pyFluidSynth==1.3.0
-torch==1.13.1
-torchaudio==0.13.1
+# Pop2Piano - Dependencies (updated for 2025/2026)
+# Recommended: Python 3.10 or 3.11 (3.12 may need omegaconf/antlr4 compatibility check)
+
+# Core ML
+torch>=2.1.0
+torchaudio>=2.1.0
+transformers>=4.40.0
+lightning>=2.2.0
+
+# Audio
+librosa>=0.10.0
+soundfile>=0.12.0
+pretty-midi>=0.2.10
+numpy>=1.24.0,<2.0.0
+numba>=0.58.0
+scipy>=1.11.0
+
+# Essentia (beat tracking) - optional for inference if using HuggingFace processor
+# On Windows: may need pre-built wheel or conda; Colab/Linux: pip install essentia
+essentia>=2.1b6
+
+# Config & utils
+omegaconf>=2.3.0
+tensorboard>=2.15.0
+tqdm>=4.66.0
+pandas>=2.0.0
+joblib>=1.3.0
+
+# Training (optional)
+wandb>=0.16.0
+
+# Data / download
+yt-dlp>=2024.1.0
+imageio-ffmpeg>=0.4.9
+
+# Preprocessing & render
+note-seq>=0.0.5
+pyFluidSynth>=1.3.0

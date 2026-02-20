@@ -28,6 +28,12 @@ python split_spleeter.py DATA_DIR
 python melody_accuracy.py DATA_DIR 
 ```
 
+6. **Maqam detection (for maqam-aware training)**  
+Run after steps 1–3 so each track has `.notes.npy`. Writes `{song_ytid}.maqam.txt` per track.
+```bash
+python preprocess_maqam.py DATA_DIR
+```
+
 # Expected Structure
 ```
 ├── -7lV0oJ0QXc
