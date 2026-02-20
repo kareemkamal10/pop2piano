@@ -74,7 +74,6 @@ def download_piano(
             "--audio-quality", "0",
             "--audio-format", "wav",
             "--retries", "50",
-            "--prefer-ffmpeg",
             "--force-ipv4",
             "--yes-playlist",
             "--ignore-errors"
@@ -117,7 +116,7 @@ def download_piano_main(piano_list, output_dir, dry_run=False, max_size_gb=None)
     piano_list : list of youtube id
     """
     os.makedirs(output_dir, exist_ok=True)
-    Parallel(n_jobs=multiprocessing.cpu_count())(
+    Parallel(n_jobs=1)(
         delayed(download_piano)(
             url=f"https://www.youtube.com/watch?v={ytid}",
             output_dir=output_dir,
@@ -170,7 +169,6 @@ def download_pop(piano_id, pop_id, output_dir, dry_run, max_size_gb=None):
         "--audio-quality", "0",
         "--audio-format", "wav",
         "--retries", "25",
-        "--prefer-ffmpeg",
         "--match-filter", "duration < 300 & duration > 150",
         "--postprocessor-args", "-ac 2 -ar 44100"
     ]
@@ -209,7 +207,7 @@ def download_pop_main(piano_list, pop_list, output_dir, dry_run=False, max_size_
     pop_list : corresponding youtube id of pop songs
     """
 
-    Parallel(n_jobs=multiprocessing.cpu_count())(
+    Parallel(n_jobs=1)(
         delayed(download_pop)(
             piano_id=piano_id,
             pop_id=pop_id,
