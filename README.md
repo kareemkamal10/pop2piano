@@ -7,7 +7,7 @@
 - [Project Page](http://sweetcocoa.github.io/pop2piano_samples)
 
 ### Training (Upgraded 2026)
-- [Train on Colab](https://colab.research.google.com/github/kareemkamal10/pop2piano/blob/upgradeProject/train.ipynb) ✨ **New Features:**
+- [Train on Colab](https://colab.research.google.com/github/kareemkamal10/pop2piano/blob/main/train.ipynb) ✨ **New Features:**
   - Mixed Precision (FP16) - 2x faster
   - Arabic Maqamat Support (راست، حجاز، بياتي...)
   - Piano Rules - Better playability
