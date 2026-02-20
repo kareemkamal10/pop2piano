@@ -1,5 +1,7 @@
 # Pop2Piano : Pop Audio-based Piano Cover Generation
 ---
+**التحديثات والإصدارات (2025–2026):** المشروع محدّث ليعمل مع آخر إصدارات المكتبات. للتفاصيل: [UPGRADE_AND_VERSIONS.md](UPGRADE_AND_VERSIONS.md).
+
 ##
 - [Paper](https://arxiv.org/abs/2211.00895)
 - [Project Page](http://sweetcocoa.github.io/pop2piano_samples)
