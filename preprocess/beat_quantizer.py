@@ -1,8 +1,14 @@
 import copy
 import librosa
-import essentia
-import essentia.standard
 import numpy as np
+
+try:
+    import essentia
+    import essentia.standard
+    _HAS_ESSENTIA = True
+except ImportError:
+    essentia = None
+    _HAS_ESSENTIA = False
 import scipy.interpolate as interp
 import note_seq
 
@@ -99,13 +105,25 @@ def midi_quantize_by_beats(
 def extract_rhythm(song, y=None):
     if y is None:
         y, sr = librosa.load(song, sr=SAMPLERATE)
+    else:
+        sr = SAMPLERATE
 
-    essentia_tracker = essentia.standard.RhythmExtractor2013(method="multifeature")
-    (
-        bpm,
-        beat_times,
-        confidence,
-        estimates,
-        essentia_beat_intervals,
-    ) = essentia_tracker(y)
-    return bpm, beat_times, confidence, estimates, essentia_beat_intervals
+    if _HAS_ESSENTIA:
+        essentia_tracker = essentia.standard.RhythmExtractor2013(method="multifeature")
+        (
+            bpm,
+            beat_times,
+            confidence,
+            estimates,
+            essentia_beat_intervals,
+        ) = essentia_tracker(y)
+        return bpm, beat_times, confidence, estimates, essentia_beat_intervals
+
+    # Fallback: use librosa when essentia is not installed (e.g. Colab)
+    tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
+    if np.isscalar(tempo):
+        bpm = float(tempo)
+    else:
+        bpm = float(np.median(tempo))
+    beat_times = librosa.frames_to_time(beat_frames, sr=sr)
+    return bpm, beat_times, None, None, None
