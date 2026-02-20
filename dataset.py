@@ -320,6 +320,13 @@ def create_dataloaders(data_dir, config, tokenizer, batch_size=None, num_workers
         augment=False,
     )
     
+    if len(train_dataset) == 0:
+        raise ValueError(
+            "No valid tracks in '{}'. Run preprocessing after download: "
+            "1) Transcribe piano to MIDI, 2) python preprocess/pop_align.py DATA_DIR, "
+            "3) python preprocess/bpm_quantize.py DATA_DIR. See preprocess/README.md.".format(data_dir)
+        )
+    
     # Create collator
     collator = Pop2PianoCollator(config)
     
